@@ -434,7 +434,7 @@ El sistema ParkEasy será aceptado cuando:
 
 | Rol | Nombre | Firma | Fecha |
 |-----|--------|-------|-------|
-| **Líder del Grupo** | [Nombre] | __________ | ___/___/___ |
+| **Líder del Grupo** | Juan Camilo Alba | Juan Camilo Alba | 18/03/26 |
 | **Integrante 2** | [Nombre] | __________ | ___/___/___ |
 | **Integrante 3** | [Nombre] | __________ | ___/___/___ |
 | **Integrante 4** | [Nombre] | __________ | ___/___/___ |
