@@ -5,10 +5,10 @@
 **Fecha:** 19/03/2026  
 **Grupo:** [4]  
 **Integrantes:**
-- [Juan Camilo Alba] - [Código]
-- [Laura Garzon] - [Código]
-- [Carlos Villegas] - [Código]
-- [Arley Bernal] - [Código]
+- Juan Camilo Alba - 20520477
+- Laura Garzon - [Código]
+- Carlos Villegas - [Código]
+- Arley Bernal - [Código]
 
 ---
 
