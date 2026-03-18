@@ -6,8 +6,8 @@
 **Grupo:** [4]  
 **Integrantes:**
 - Juan Camilo Alba - 20520477
-- Laura Garzon - [20511299]
-- Carlos Villegas - [Código]
+- Laura Garzon - 20511299
+- Carlos Villegas - 20532083
 - Arley Bernal - [Código]
 
 ---
