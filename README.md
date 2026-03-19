@@ -2,10 +2,10 @@
 ## Grupo 4
 
 **Integrantes:**
-- Juan Camilo Alba - #### - [Email]
-- Laura Juliana Garzón Arias - #### - [Email]
-- Carlos Villegas - #### - [Email]
-- Arley Bernal Muñetón - #### - [Email]
+- Juan Camilo Alba - 20520477 - [Email]
+- Laura Juliana Garzón Arias - 20511299 - [Email]
+- Carlos Villegas - 20532083 - [Email]
+- Arley Bernal Muñetón - 20510888 - [Email]
 
 
 **Fecha de entrega:** 19/03/2026
