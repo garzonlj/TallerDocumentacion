@@ -26,7 +26,7 @@ Necesitamos decidir el estilo arquitectural para ParkEasy. El sistema debe:
 
 ## Drivers de Decisión
 
-- **DR-01:** Performance de entrada/salida - ≤ 5 segundos P95 (LPR a apertura de barrera) (Prioridad: Alta)
+- **DR-01:** Performance de entrada/salida - ≤ 5 segundos P95  (Prioridad: Alta)
 - **DR-02:** Escalabilidad - 450 a 1.200 espacios sin rediseño arquitectural (Prioridad: Alta)
 - **DR-03:** Disponibilidad en horas pico - 0 downtime en franjas 7–10 am y 5–8 pm (Prioridad: Alta)
 - **DR-04:** Integración con sistema legacy - Adaptador SOAP/VB6 no reemplazable en el MVP (Prioridad: Alta)
@@ -45,14 +45,14 @@ Una única aplicación backend con módulos internos bien definidos (acceso, res
 
 **Pros:**
 - Desarrollo más rápido al inicio: un solo proyecto sin overhead de comunicación entre servicios.
-- Menor complejidad operacional: un único proceso, una sola pipeline de CI/CD.
-- Transacciones ACID simples: operaciones cross-dominio ocurren en una sola transacción de base de datos.
+- Menor complejidad operacional: un único proceso a monitorear y un único flujo de integración y despliegue continuo.
+- Consistencia de datos garantizada: operaciones que involucran múltiples módulosse ejecutan en una sola transacción de base de datos, sin riesgo de estados inconsistentes.
 - Costo mínimo de infraestructura: un solo contenedor, estimado $300–500 USD/mes.
 
 **Contras:**
-- No permite escalamiento selectivo: el módulo de acceso LPR no puede escalarse de forma independiente del módulo de administración.
+- No permite escalamiento selectivo: el módulo de reconocimiento de placas (LPR) no puede escalarse de forma independiente del módulo de administración.
 - Despliegues de alto riesgo: un bug en reportes obliga a redesplegar toda la aplicación, incluido el flujo de acceso vehicular.
-- Sin aislamiento de fallos: un error en la integración con el legacy VB6 puede degradar el sistema completo, incluido el flujo crítico de barreras.
+- Sin aislamiento de fallos: un error en la integración con el legacy VB6 puede degradar el sistema completo.
 - Conflictos frecuentes en el repositorio: 4 desarrolladores trabajando sobre el mismo artefacto generan fricciones constantes en el control de versiones.
 
 ---
@@ -65,24 +65,24 @@ Cada capacidad de negocio se despliega como un servicio completamente autónomo,
 **Pros:**
 - Escalabilidad extrema e independiente por servicio.
 - Aislamiento total de fallos entre dominios de negocio.
-- Soberanía de datos real: cada servicio es propietario exclusivo de su esquema y base de datos.
+- Cada servicio es propietario exclusivo de su esquema y base de datos.
 - Flexibilidad tecnológica: cada servicio puede adoptar el stack más adecuado para su función.
 
 **Contras:**
 - Overhead operacional inviable: service mesh, distributed tracing, gestión de secretos y orquestación avanzada exceden la capacidad de 4 desarrolladores en 8 meses.
 - Latencia acumulada en el flujo crítico: el ingreso vehicular requiere 3–5 llamadas de red encadenadas, comprometiendo el SLA de 5 seg P95 (DR-01).
 - Costo de infraestructura prohibitivo: base de datos por servicio, brokers de mensajes y herramientas de observabilidad distribuida superan los $5.000 USD/mes (DR-07).
-- Transacciones distribuidas complejas: operaciones como "reservar + cobrar + registrar factura" requieren implementar el patrón Saga o 2PC, añadiendo semanas de desarrollo que el MVP no puede absorber.
+- Transacciones distribuidas complejas: operaciones como "reservar + cobrar + registrar factura" requieren implementación de patrones, añadiendo semanas de desarrollo que el MVP no puede absorber.
 
 ---
 
-## Decisión
+### Alternativa 3: Service-Based Architecture (Escogida)
 
-Adoptamos **Service-Based Architecture** con 5 servicios de grano grueso, cada uno representando un dominio de negocio claramente delimitado:
+Adoptamos **Service-Based Architecture** con 5 servicios independientes:
 
 1. **Access Service** – Integración con cámaras LPR, control de barrera, registro de entradas/salidas, modo de contingencia manual para operadores.
-2. **Reservation Service** – Disponibilidad de espacios en tiempo real, gestión de reservas anticipadas, liberación automática por expiración.
-3. **Payment Service** – Procesamiento de pagos digitales (Wompi), cálculo de tarifas, emisión de facturas electrónicas (DIAN), sincronización con el sistema legacy VB6 vía adaptador SOAP.
+2. **Reservation Service** – Disponibilidad de espacios en tiempo real, gestión de reservas anticipadas.
+3. **Payment Service** – Procesamiento de pagos digitales (Wompi), cálculo de tarifas, emisión de facturas, sincronización con el sistema legacy VB6 vía adaptador SOAP.
 4. **Notification Service** – Envío de emails y SMS: confirmaciones de reserva, facturas y alertas de incidentes.
 5. **Admin Service** – Dashboard de ocupación en tiempo real, reportes de ingresos, configuración de tarifas por zona.
 
@@ -119,7 +119,6 @@ El flujo de entrada vehicular (SLA de 5 seg P95, DR-01) se vería comprometido p
 | DR-03 | Fallos en servicios no críticos no afectan el Access Service. Despliegues rolling por servicio sin downtime global. |
 | DR-04 | Adaptador SOAP/VB6 encapsulado exclusivamente en Payment Service. El resto del sistema no depende de su disponibilidad. |
 | DR-06 | Payment Service aislado reduce el scope de certificación PCI-DSS. Datos de placas gestionados con encriptación en reposo en Access Service. |
-| DR-07 | Estimado $1.200–1.600 USD/mes con 5x ECS Fargate t3.small + RDS db.t3.medium + RabbitMQ + Kong OSS. |
 | DR-08 | 5 servicios bien delimitados permiten trabajo en paralelo. Estimado 1.5 meses por servicio con un desarrollador asignado. |
 
 ---
@@ -135,24 +134,24 @@ El flujo de entrada vehicular (SLA de 5 seg P95, DR-01) se vería comprometido p
 5. **Encapsulación de la inestabilidad legacy:** La integración VB6 queda contenida en Payment Service y no contamina los demás dominios.
 6. **Time-to-market alcanzable:** No se requiere infraestructura compleja desde el día 1. La complejidad operacional se añade de forma incremental.
 
+
 ### Negativas (y mitigaciones):
 
 1. **Acoplamiento por base de datos compartida**
-   - **Riesgo:** Un cambio de schema puede impactar múltiples servicios si no se coordina.
-   - **Mitigación:** Schemas separados por servicio en PostgreSQL. Todo cambio de schema requiere revisión de impacto y se versiona con Flyway. Los servicios acceden a datos de otros dominios exclusivamente vía REST, nunca por query directa a schema ajeno.
+   - **Riesgo:** Un cambio en la estructura de la base de datos puede afectar múltiples servicios de forma no controlada.
+   - **Mitigación:** Cada servicio tiene su propio esquema en PostgreSQL y accede a datos de otros dominios únicamente a través del servicio propietario, nunca con consultas directas a esquemas ajenos. Los cambios de estructura se versionan y requieren revisión de impacto antes de aplicarse.
 
-2. **Sin soberanía de datos estricta**
-   - **Riesgo:** Un desarrollador puede realizar queries directas al schema de otro servicio, violando el encapsulamiento de dominio.
-   - **Mitigación:** Linting rules que detecten y bloqueen queries entre schemas. Code reviews obligatorios para toda nueva query de base de datos. Repository pattern en cada servicio.
+2. **Sin aislamiento total de datos entre servicios**
+   - **Riesgo:** Al compartir la base de datos, un desarrollador puede consultar directamente tablas de otro servicio, rompiendo los límites del dominio sin que haya una barrera técnica que lo impida.
+   - **Mitigación:** Reglas de análisis estático en el repositorio que detecten consultas entre esquemas ajenos. Revisión obligatoria de toda nueva consulta a base de datos en el proceso de código.
 
-3. **Coordinación de transacciones cross-servicio**
-   - **Riesgo:** La operación "registrar entrada + descontar espacio reservado" involucra dos servicios; un fallo parcial puede dejar el estado inconsistente.
-   - **Mitigación:** Outbox Pattern para operaciones críticas: el Access Service escribe el evento en una tabla `outbox` dentro de la misma transacción PostgreSQL, y un worker lo publica a RabbitMQ de forma garantizada.
+3. **Consistencia en operaciones que involucran múltiples servicios**
+   - **Riesgo:** Una operación como "registrar entrada y liberar el espacio reservado" toca dos servicios; si falla a mitad, los datos pueden quedar en un estado inconsistente.
+   - **Mitigación:** El servicio de acceso registra el evento en su propia base de datos dentro de la misma operación atómica, y un proceso en segundo plano se encarga de notificar al servicio de reservas de forma garantizada.
 
 4. **Mayor complejidad operacional que un monolito**
-   - **Riesgo:** 5 servicios implican 5 pipelines de CI/CD, 5 imágenes Docker y mayor superficie de configuración.
-   - **Mitigación:** Monorepo con scripts de build compartidos. CloudWatch centralizado para logs de todos los servicios con correlación por `requestId` y un único dashboard operacional.
-
+   - **Riesgo:** Gestionar 5 servicios independientes implica más configuración, más flujos de despliegue y más puntos de fallo potencial que una aplicación única.
+   - **Mitigación:** Repositorio único con configuración de despliegue compartida y logs centralizados de todos los servicios en un único panel de monitoreo.
 ---
 
 ## Alternativas Descartadas (Detalle)
