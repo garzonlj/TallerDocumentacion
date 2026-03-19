@@ -14,7 +14,7 @@ Necesitamos seleccionar la base de datos principal para ParkEasy. El sistema deb
 - Usuarios y roles (conductores, operadores, administradores)
 - Espacios y disponibilidad en tiempo real por parqueadero
 - Reservas anticipadas y registros de entrada/salida
-- Transacciones de pago y facturas electrónicas (retención mínima de 5 años, DIAN)
+- Transacciones de pago y facturas electrónicas 
 - Configuración de tarifas por zona
 
 **Requisitos clave:**
