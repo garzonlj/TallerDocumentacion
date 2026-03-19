@@ -151,6 +151,84 @@ workspace "ParkEasy - Sistema de Gestión de Parqueaderos" "Arquitectura C4 comp
         reservasRepo   -> mainDatabase "SQL"
         accesoRepo     -> mainDatabase "SQL"
         incidentesRepo -> mainDatabase "SQL"
+
+        # ─── ENTORNO DE DESPLIEGUE: PRODUCCIÓN (AWS) ────────────────────
+        production = deploymentEnvironment "Producción" {
+
+            # ── Región AWS principal ─────────────────────────────────────
+            deploymentNode "AWS - Bogotá (us-east-1)" "Amazon Web Services" "Cloud" {
+
+                # ── CloudFront + S3 (frontends estáticos) ────────────────
+                deploymentNode "AWS CloudFront" "CDN global para frontends estáticos" "CloudFront" {
+                    deploymentNode "S3 Bucket - Web App" "Hosting estático React/Next.js" "Amazon S3" {
+                        webAppInstance = containerInstance webApp
+                    }
+                }
+
+                # ── ECS Cluster (servicios backend) ──────────────────────
+                deploymentNode "AWS ECS Cluster" "Orquestación de contenedores Docker" "Amazon ECS / Fargate" {
+
+                    deploymentNode "ECS Service - API Gateway" "2 tasks Fargate (auto-scaling 2-6)" "Fargate" {
+                        apiGatewayInstance = containerInstance apiGateway
+                    }
+
+                    deploymentNode "ECS Service - Auth" "2 tasks Fargate" "Fargate" {
+                        authServiceInstance = containerInstance authService
+                    }
+
+                    deploymentNode "ECS Service - Operacion" "2 tasks Fargate (auto-scaling 2-8 en picos)" "Fargate" {
+                        operacionServiceInstance = containerInstance operacionService
+                    }
+
+                    deploymentNode "ECS Service - Disponibilidad" "2 tasks Fargate (auto-scaling 2-6)" "Fargate" {
+                        disponibilidadServiceInstance = containerInstance disponibilidadService
+                    }
+
+                    deploymentNode "ECS Service - Pagos" "2 tasks Fargate" "Fargate" {
+                        pagosServiceInstance = containerInstance pagosService
+                    }
+
+                    deploymentNode "ECS Service - Reportes" "1 task Fargate" "Fargate" {
+                        reportesServiceInstance = containerInstance reportesService
+                    }
+                }
+
+                # ── Application Load Balancer ─────────────────────────────
+                deploymentNode "AWS Application Load Balancer" "Balanceo de carga HTTPS hacia ECS" "ALB" {
+                    # El ALB enruta tráfico al ECS Cluster
+                }
+
+                # ── ElastiCache (Redis) ───────────────────────────────────
+                deploymentNode "AWS ElastiCache" "Cluster Redis administrado, Multi-AZ" "ElastiCache for Redis" {
+                    cacheInstance = containerInstance cacheService
+                }
+
+                # ── RDS Principal (Multi-AZ) ──────────────────────────────
+                deploymentNode "AWS RDS Primary" "Instancia db.t3.large - Multi-AZ, backups diarios" "Amazon RDS / PostgreSQL" {
+                    mainDatabaseInstance = containerInstance mainDatabase
+                }
+
+                # ── RDS Read Replica (Reportes) ───────────────────────────
+                deploymentNode "AWS RDS Read Replica" "Réplica lectura para queries de reportes" "Amazon RDS / PostgreSQL" {
+                    reportsDatabaseInstance = containerInstance reportsDatabase
+                }
+
+                # ── Amazon MQ (RabbitMQ) ──────────────────────────────────
+                deploymentNode "AWS Amazon MQ" "Broker RabbitMQ administrado, Multi-AZ" "Amazon MQ" {
+                    messageQueueInstance = containerInstance messageQueue
+                }
+
+                # ── Expo / App Stores (distribución móvil) ────────────────
+                deploymentNode "Expo EAS / App Stores" "Build y distribución de la app React Native" "Expo Application Services" {
+                    mobileAppInstance = containerInstance mobileApp
+                }
+
+                # ── Electron (desktop operador) ───────────────────────────
+                deploymentNode "Casetas Físicas" "PCs en casetas de entrada/salida con Electron instalado" "On-Premise / LAN" {
+                    operatorUIInstance = containerInstance operatorUI
+                }
+            }
+        }
     }
 
     views {
@@ -174,6 +252,13 @@ workspace "ParkEasy - Sistema de Gestión de Parqueaderos" "Arquitectura C4 comp
             include *
             autoLayout lr
             title "C4 Nivel 3 - Componentes - Operacion Service"
+        }
+
+        # Vista 4 – Despliegue: Producción AWS
+        deployment parkEasy production "C4_Deployment_Production" {
+            include *
+            autoLayout lr
+            title "Diagrama de Despliegue - ParkEasy en AWS (Producción)"
         }
 
         styles {
