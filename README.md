@@ -58,9 +58,6 @@ Abrir: http://localhost:8080
 
 ## 🏗️ DECISIONES ARQUITECTURALES CLAVE
 
-<!-- INSTRUCCIONES: Resumir brevemente las 3 decisiones más importantes -->
-## 🏗️ DECISIONES ARQUITECTURALES CLAVE
-
 ### 1. Estilo Arquitectural: Service-Based Architecture
 
 **Decisión:** Service-Based Architecture con 5 servicios de negocio independientes (Auth, Operación, Disponibilidad, Pagos, Reportes) detrás de un API Gateway.
