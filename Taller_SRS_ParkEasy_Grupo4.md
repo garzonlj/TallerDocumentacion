@@ -437,7 +437,7 @@ El sistema ParkEasy será aceptado cuando:
 | **Líder del Grupo** | Juan Camilo Alba | Juan Camilo Alba | 18/03/26 |
 | **Integrante 2** | Laura Juliana Garzon Arias |Laura Juliana Garzon Arias| 18/03/26 |
 | **Integrante 3** | Arley Bernal Muñetón | Arley Bernal Muñetón | 18/03/26 |
-| **Integrante 4** | [Nombre] | __________ | ___/___/___ |
+| **Integrante 4** | Carlos Villegas Ruiz  | Carlos Villegas R | 18/03/26 |
 
 ---
 
