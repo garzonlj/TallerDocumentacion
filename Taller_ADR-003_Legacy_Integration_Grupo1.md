@@ -1,130 +1,128 @@
-# ADR-003: Adoptar un Servicio Adaptador para la Integración con el Sistema Legacy VB6
+# ADR-003: Adoptar Redis como Caché para Disponibilidad en Tiempo Real
 
 **Estado:** Aceptado  
 **Fecha:** 19/03/2026  
 **Decisores:** Juan Camilo Alba, Laura Garzón, Carlos Villegas, Arley Bernal  
-**Relacionado con:** RF-06, RF-07, RNF-01, RNF-02, DR-01, DR-03, DR-04, DR-07  
+**Relacionado con:** RF-02, RF-04, RNF-01, RNF-02, DR-01, DR-02, DR-07  
 **Grupo:** 1
 
 ---
 
 ## Contexto y Problema
 
-Necesitamos decidir cómo integrar ParkEasy con el sistema de cobro legacy desarrollado en Visual Basic 6 (VB6), que opera mediante un protocolo SOAP escasamente documentado y no puede ser reemplazado durante el MVP. Este sistema es el registro oficial de cobros de los parqueaderos y debe mantenerse sincronizado con cada transacción procesada por ParkEasy.
+Necesitamos decidir cómo gestionar la disponibilidad de espacios en tiempo real para los 3 parqueaderos. Esta información es consultada de forma frecuente por tres fuentes simultáneas: conductores que revisan disponibilidad antes de llegar, el sistema de reconocimiento de placas (LPR) al momento del ingreso, y el panel del operador en caseta.
 
-El principal riesgo es que la inestabilidad conocida de este sistema —tiempos de respuesta variables, fallos intermitentes y falta de documentación— se propague al resto de la arquitectura, afectando el flujo crítico de entrada y salida de vehículos (DR-01, DR-03). La decisión debe aislar esta complejidad y proteger al resto de los servicios de una dependencia directa con el legacy.
+El problema es que consultar el estado de disponibilidad directamente en la base de datos en cada solicitud, bajo una carga de 80 vehículos por hora en horas pico, puede generar una presión innecesaria sobre PostgreSQL y comprometer el tiempo de respuesta del flujo crítico de entrada (DR-01). Se necesita una estrategia que mantenga la información disponible de forma rápida sin depender de una consulta a base de datos en cada petición.
 
 **Alternativas consideradas:**
-1. Integración directa desde cada servicio
-2. Servicio adaptador dedicado
-3. Anti-Corruption Layer con cola de mensajes
+1. Sin caché: consulta directa a la base de datos en cada solicitud
+2. Caché en memoria dentro de cada servicio
+3. Redis como caché distribuido
 
 ---
 
 ## Drivers de Decisión
 
 - **DR-01:** Performance de entrada/salida - ≤ 5 segundos P95 (Prioridad: Alta)
+- **DR-02:** Escalabilidad - 450 a 1.200 espacios sin rediseño arquitectural (Prioridad: Alta)
 - **DR-03:** Disponibilidad en horas pico - 0 downtime en franjas 7–10 am y 5–8 pm (Prioridad: Alta)
-- **DR-04:** Integración con sistema legacy - Adaptador SOAP/VB6 no reemplazable en el MVP (Prioridad: Alta)
 - **DR-07:** Costo de infraestructura - Máximo $2.000 USD/mes en el MVP (Prioridad: Media)
 
 ---
 
 ## Alternativas Consideradas
 
-### Alternativa 1: Integración directa desde cada servicio
+### Alternativa 1: Sin caché — consulta directa a la base de datos
 
 **Descripción:**
-Cada servicio que necesite comunicarse con el sistema legacy implementa su propia lógica de cliente SOAP de forma independiente. No hay un componente centralizado; cada servicio gestiona su propia conexión, manejo de errores y reintentos contra el VB6.
+Cada solicitud de disponibilidad realiza una consulta directa a PostgreSQL. No hay ninguna capa intermedia de almacenamiento temporal; el estado de los espacios se lee siempre desde la fuente de datos principal.
 
 **Pros:**
-- Sin infraestructura adicional: no requiere un servicio nuevo ni su despliegue independiente.
-- Implementación inicial más rápida: cada equipo puede conectarse al legacy según lo necesite.
+- Sin infraestructura adicional: no requiere ningún componente nuevo.
+- La información devuelta siempre refleja el estado exacto y más reciente de la base de datos.
+- Implementación inmediata sin configuración adicional.
 
 **Contras:**
-- La lógica de integración con el SOAP se duplica en múltiples servicios, incrementando la deuda técnica.
-- Un cambio en el protocolo o en la interfaz del legacy obliga a modificar y redesplegar todos los servicios afectados de forma coordinada.
-- Sin un punto central de control, los fallos del legacy se propagan de forma directa a cada servicio que dependa de él, incluyendo aquellos del flujo crítico de acceso.
-- La falta de documentación del protocolo SOAP se convierte en un problema distribuido: varios desarrolladores deben hacer ingeniería inversa de forma independiente.
+- En horas pico con 80 vehículos por hora, las consultas simultáneas de disponibilidad desde conductores, el sistema LPR y los paneles de operador generan una carga sostenida sobre PostgreSQL que puede degradar el tiempo de respuesta del flujo crítico de entrada.
+- No escala bien al aumentar el número de parqueaderos y espacios (DR-02): más espacios implican consultas más pesadas en cada solicitud.
+- Un aumento en el tráfico web (conductores consultando disponibilidad desde la app) afecta directamente el rendimiento de las operaciones de escritura en la base de datos.
 
 ---
 
-### Alternativa 2: Servicio adaptador dedicado
+### Alternativa 2: Caché en memoria dentro de cada servicio
 
 **Descripción:**
-Un único servicio —Legacy Adapter Service— encapsula toda la comunicación con el sistema VB6. Expone una API REST interna limpia y documentada hacia el resto de los servicios de ParkEasy, ocultando completamente el protocolo SOAP y la complejidad del legacy. Los demás servicios nunca conocen la existencia del sistema legacy.
+Cada instancia del Reservation Service mantiene en su propia memoria una copia del estado de disponibilidad, con una expiración configurada. No se requiere ningún componente externo; el caché vive dentro del proceso de la aplicación.
 
 **Pros:**
-- Un único punto de integración con el legacy: los cambios en el protocolo SOAP solo requieren modificar el adaptador.
-- El resto de los servicios se comunican con una API REST estable y bien definida, sin acoplamiento al legacy.
-- La lógica de reintentos, timeouts y manejo de errores del SOAP se implementa una sola vez.
-- Facilita las pruebas: el adaptador puede ser reemplazado por un mock en entornos de desarrollo sin afectar a los demás servicios.
-- Si en el futuro el legacy es reemplazado, solo el adaptador necesita cambiar; el resto de la arquitectura permanece intacto.
+- Sin infraestructura adicional: no requiere un servicio externo.
+- Latencia mínima: el acceso a memoria es más rápido que cualquier llamada de red.
+- Sin costo adicional de infraestructura.
 
 **Contras:**
-- Requiere desarrollar y mantener un servicio adicional, con su propio ciclo de despliegue.
-- La comunicación con el adaptador sigue siendo síncrona: si el legacy no responde, el servicio que llama debe esperar o gestionar el timeout.
+- Cada instancia del servicio mantiene su propia copia del estado, que puede ser diferente entre instancias. Con múltiples instancias del Reservation Service corriendo en paralelo, dos conductores podrían ver disponibilidades distintas al mismo tiempo.
+- Cuando una instancia se reinicia, pierde su caché y debe reconstruirlo desde la base de datos, generando una carga puntual.
+- No es viable en una arquitectura de servicios con múltiples instancias, que es exactamente el escenario de ParkEasy en horas pico (DR-02).
 
 ---
 
-### Alternativa 3: Anti-Corruption Layer con cola de mensajes
+### Alternativa 3: Redis como caché distribuido
 
 **Descripción:**
-La comunicación con el legacy se realiza de forma completamente asíncrona a través de una cola de mensajes (RabbitMQ). Los servicios publican eventos de cobro a la cola y un componente consumidor se encarga de traducirlos al protocolo SOAP y enviarlos al VB6 en segundo plano, sin bloquear el flujo principal.
+Un servidor Redis centralizado almacena el estado de disponibilidad de todos los parqueaderos. Todas las instancias de todos los servicios consultan y actualizan el mismo caché. Cuando un vehículo entra o sale, el servicio correspondiente actualiza Redis; las consultas de disponibilidad se resuelven desde Redis sin tocar PostgreSQL.
 
 **Pros:**
-- Desacoplamiento total: los servicios de ParkEasy no dependen en absoluto de la disponibilidad del legacy para completar sus operaciones.
-- Alta resiliencia: si el legacy está caído, los mensajes se acumulan en la cola y se procesan cuando el sistema recupera disponibilidad.
-- Protección completa del flujo crítico frente a fallos del legacy.
+- Estado de disponibilidad consistente entre todas las instancias de todos los servicios: no hay divergencias entre réplicas.
+- Tiempos de respuesta en el rango de 1–2 ms para consultas de disponibilidad, sin impacto sobre PostgreSQL.
+- Soporte nativo para estructuras de datos como contadores y sets, útiles para gestionar el estado de espacios por parqueadero.
+- Escala horizontalmente junto con el resto de la arquitectura sin cambios en el diseño (DR-02).
+- AWS ElastiCache for Redis ofrece alta disponibilidad con replicación automática.
 
 **Contras:**
-- Introduce consistencia eventual: el registro en el sistema legacy puede quedar desactualizado respecto a ParkEasy por un período variable.
-- Mayor complejidad de implementación: requiere gestionar la cola, el consumidor, los reintentos y la conciliación de estados entre ambos sistemas.
-- En un MVP de 8 meses con 4 desarrolladores, la complejidad operacional adicional supera el beneficio para el volumen de operaciones esperado (DR-07).
+- Requiere un componente adicional en la infraestructura con su propio costo y configuración.
+- Introduce la necesidad de gestionar la invalidación del caché: cuando el estado de un espacio cambia, Redis debe actualizarse de forma inmediata para evitar información desactualizada.
 
 ---
 
 ## Decisión
 
-Adoptamos un **servicio adaptador dedicado** — **Legacy Adapter Service** — que encapsula toda la comunicación con el sistema VB6 y expone una API REST interna hacia el resto de los servicios de ParkEasy.
+Adoptamos **Redis** desplegado en **AWS ElastiCache** como caché distribuido para el estado de disponibilidad de espacios.
 
-**Responsabilidades del Legacy Adapter Service:**
-- Traducir las peticiones REST internas al protocolo SOAP requerido por el VB6
-- Gestionar la autenticación y la sesión con el sistema legacy
-- Implementar la política de reintentos y timeouts ante fallos del legacy
-- Registrar cada interacción con el legacy para facilitar la auditoría y la depuración
-- Exponer un endpoint de health check que refleje el estado de la conexión con el VB6
+**Qué se almacena en Redis:**
+- Estado de cada espacio por parqueadero: libre, ocupado o reservado
+- Conteo de espacios disponibles por parqueadero (para la vista general del conductor)
+- Expiración de reservas activas (TTL por reserva)
+
+**Política de actualización del caché:**
+- Cuando un vehículo entra o sale, el Access Service actualiza Redis de forma inmediata como parte de la misma operación
+- Cuando se crea o cancela una reserva, el Reservation Service actualiza Redis en el mismo flujo
+- TTL de respaldo de 60 segundos en cada clave: si una actualización falla por algún motivo, el caché se invalida automáticamente y la siguiente consulta reconstruye el estado desde PostgreSQL
 
 **Configuración:**
-- Desplegado como contenedor independiente en AWS ECS Fargate
-- Timeout máximo por petición al legacy: 3 segundos
-- Política de reintentos: 2 intentos adicionales con backoff de 500 ms entre cada uno
-- Circuit breaker: si el legacy falla 5 peticiones consecutivas, el adaptador retorna un error controlado y notifica al operador
+- Instancia: cache.t3.micro (suficiente para 1.200 espacios y el volumen del MVP)
+- Replicación automática habilitada en ElastiCache para cumplir el requisito de disponibilidad (DR-03)
+- Estimado: $20–30 USD/mes
 
 ---
 
 ## Justificación
 
-### Por qué servicio adaptador y no integración directa:
+### Por qué Redis y no consulta directa:
 
-La integración directa distribuye la complejidad del legacy en múltiples servicios. Dado que el protocolo SOAP del VB6 está escasamente documentado (DR-04), hacer ingeniería inversa del protocolo una sola vez y encapsularla en un adaptador es significativamente más eficiente que replicarla en cada servicio. Cualquier cambio futuro en el comportamiento del legacy requeriría modificar un único componente en lugar de coordinar cambios en múltiples servicios.
+La consulta directa a PostgreSQL en cada solicitud de disponibilidad funciona bien en condiciones normales, pero en horas pico el volumen combinado de consultas desde la app, el LPR y los paneles de operador puede degradar el tiempo de respuesta de las operaciones de escritura (registros de entrada, reservas, pagos), que son las más críticas del sistema. Redis elimina esta presión: las consultas de disponibilidad se resuelven en memoria sin tocar la base de datos.
 
-Adicionalmente, el aislamiento que ofrece el adaptador protege el resto de la arquitectura de la inestabilidad del legacy. Si el VB6 presenta fallos intermitentes, el impacto queda contenido en el adaptador y no se propaga al Payment Service ni, por extensión, al flujo de acceso vehicular.
+### Por qué Redis y no caché en memoria:
 
-### Por qué servicio adaptador y no Anti-Corruption Layer con cola:
-
-El enfoque asíncrono ofrece mayor resiliencia, pero introduce consistencia eventual entre ParkEasy y el sistema legacy. Para el MVP, donde el sistema VB6 sigue siendo el registro oficial de cobros, es importante que la sincronización ocurra dentro de la misma operación de pago, no en segundo plano. Una discrepancia temporal entre ambos sistemas podría generar inconsistencias en los registros de cobro que el negocio no está preparado para gestionar.
-
-La complejidad operacional adicional de gestionar una cola, un consumidor dedicado y procesos de conciliación supera el beneficio para un volumen de 1.200 operaciones diarias con un equipo de 4 desarrolladores en 8 meses (DR-07).
+El caché en memoria es inviable en una arquitectura con múltiples instancias del mismo servicio. En horas pico, el Reservation Service y el Access Service escalan horizontalmente con varias instancias en paralelo. Si cada instancia mantiene su propia copia del estado, dos conductores consultando instancias distintas pueden ver disponibilidades diferentes en el mismo momento, lo que puede resultar en doble asignación de espacios. Redis centraliza ese estado y garantiza que todas las instancias vean siempre la misma información.
 
 ### Cómo cumple con los drivers:
 
 | Driver | Cómo esta decisión lo cumple |
 |--------|------------------------------|
-| DR-01 | El timeout máximo de 3 segundos y la política de circuit breaker garantizan que un fallo del legacy no bloquea indefinidamente el flujo de pago, manteniendo el SLA de 5 segundos P95. |
-| DR-03 | El circuit breaker retorna un error controlado ante fallos del legacy sin tumbar el Payment Service ni afectar el flujo de acceso vehicular durante horas pico. |
-| DR-04 | La lógica SOAP y la ingeniería inversa del protocolo VB6 están encapsuladas en un único componente. El resto de los servicios interactúan con una API REST estable. |
-| DR-07 | Un único servicio adicional en ECS Fargate (t3.small) representa un incremento estimado de $20–30 USD/mes sobre el presupuesto actual de infraestructura. |
+| DR-01 | Las consultas de disponibilidad se resuelven desde Redis en 1–2 ms, sin impacto sobre el tiempo de respuesta del flujo de entrada vehicular. |
+| DR-02 | Redis escala junto con el resto de la arquitectura; agregar nuevos parqueaderos y espacios es configuración, no rediseño. |
+| DR-03 | ElastiCache con replicación automática garantiza disponibilidad del caché durante horas pico sin intervención manual. |
+| DR-07 | Estimado $20–30 USD/mes con cache.t3.micro. Representa menos del 2% del presupuesto total de infraestructura. |
 
 ---
 
@@ -132,60 +130,55 @@ La complejidad operacional adicional de gestionar una cola, un consumidor dedica
 
 ### Positivas:
 
-1. **Aislamiento de la inestabilidad legacy:** Los fallos del VB6 quedan contenidos en el adaptador y no se propagan al resto de los servicios ni al flujo crítico de acceso vehicular.
-2. **Un único punto de mantenimiento:** Cambios en el protocolo SOAP, credenciales o comportamiento del legacy se resuelven modificando únicamente el adaptador.
-3. **Sustitución simplificada:** Si el legacy es reemplazado en el futuro, solo el adaptador debe actualizarse; el resto de la arquitectura no requiere cambios.
-4. **Observabilidad centralizada:** Todos los registros de interacción con el legacy se concentran en un único componente, facilitando la auditoría y la depuración.
+1. **Menor presión sobre PostgreSQL:** Las consultas de disponibilidad, que son las más frecuentes del sistema, dejan de impactar la base de datos en cada solicitud.
+2. **Tiempo de respuesta predecible:** Las consultas de disponibilidad se resuelven siempre en el mismo rango de tiempo, independientemente de la carga sobre la base de datos.
+3. **Estado consistente entre servicios:** Todas las instancias de todos los servicios leen y escriben sobre el mismo caché, eliminando el riesgo de divergencias en el estado de disponibilidad.
+4. **Extensible:** Redis puede usarse en el futuro para otros casos de uso como la gestión de sesiones de usuario o la limitación de tasa de peticiones.
 
 ### Negativas (y mitigaciones):
 
-1. **Punto único de fallo para la integración con el legacy**
-   - **Riesgo:** Si el adaptador falla, ningún servicio puede comunicarse con el VB6.
-   - **Mitigación:** ECS Fargate mantiene al menos dos instancias del adaptador en ejecución. El circuit breaker evita que peticiones fallidas agoten los recursos disponibles.
+1. **Complejidad en la invalidación del caché**
+   - **Riesgo:** Si una actualización de estado falla y Redis no se actualiza, los conductores pueden ver información incorrecta sobre la disponibilidad.
+   - **Mitigación:** TTL de 60 segundos en cada clave como mecanismo de respaldo. Si Redis no se actualiza correctamente, el caché expira y la siguiente consulta reconstruye el estado desde PostgreSQL. Dado que RF-02 acepta una antigüedad máxima de 30 segundos, este TTL cumple el requisito.
 
-2. **Latencia adicional en el flujo de pago**
-   - **Riesgo:** La llamada al adaptador añade un salto de red adicional entre el Payment Service y el legacy VB6.
-   - **Mitigación:** El adaptador se despliega en la misma VPC y zona de disponibilidad que el Payment Service, manteniendo la latencia de red interna por debajo de 5 ms.
-
-3. **Complejidad en la gestión de errores del legacy**
-   - **Riesgo:** El VB6 puede devolver respuestas de error no documentadas o comportarse de forma inesperada, difíciles de anticipar en el diseño del adaptador.
-   - **Mitigación:** El adaptador registra todas las respuestas del legacy en un log estructurado. Las respuestas no reconocidas se tratan como error controlado y se notifica al operador para revisión manual.
+2. **Componente adicional en la infraestructura**
+   - **Riesgo:** Un fallo de Redis deja al sistema sin caché, forzando todas las consultas de disponibilidad directamente a PostgreSQL.
+   - **Mitigación:** El sistema está diseñado para funcionar sin caché como modo de degradación controlada: si Redis no está disponible, el Reservation Service cae en modo de consulta directa a PostgreSQL. La disponibilidad de los espacios puede verse afectada en términos de latencia, pero el flujo de acceso vehicular no se interrumpe.
 
 ---
 
 ## Alternativas Descartadas (Detalle)
 
-### Por qué se descartó la integración directa:
+### Por qué se descartó la consulta directa a la base de datos:
 
-La duplicación de la lógica SOAP en múltiples servicios genera una deuda técnica difícil de gestionar con un equipo de 4 personas. Dado que el protocolo del VB6 no está documentado, cualquier descubrimiento sobre su comportamiento tendría que propagarse a todos los servicios afectados de forma manual. Ante un cambio en el legacy, la coordinación de modificaciones en múltiples servicios en paralelo incrementa el riesgo de errores y de downtime en el flujo de cobro.
-
-**Cuándo sería la mejor opción:**
-- Un único servicio necesita comunicarse con el legacy, sin posibilidad de que eso cambie.
-- El protocolo del legacy está completamente documentado y es estable.
-
-### Por qué se descartó el Anti-Corruption Layer con cola de mensajes:
-
-La consistencia eventual que introduce este enfoque es incompatible con el modelo operativo actual de ParkEasy, donde el VB6 sigue siendo el sistema de registro oficial de cobros. Una discrepancia temporal entre ambos sistemas, por corta que sea, puede generar inconsistencias en los registros financieros que el negocio no está en condiciones de conciliar de forma automatizada durante el MVP.
+En condiciones de baja carga, la consulta directa es perfectamente viable. El problema aparece en horas pico, donde el volumen combinado de consultas de solo lectura (disponibilidad) compite con las operaciones de escritura críticas (registros de entrada, reservas, pagos) por los recursos de PostgreSQL. Al separar estas cargas mediante Redis, las escrituras críticas no se ven afectadas por el tráfico de lectura.
 
 **Cuándo sería la mejor opción:**
-- El sistema legacy puede operar de forma completamente independiente de ParkEasy, sin necesidad de sincronización en tiempo real.
-- El volumen de operaciones es suficientemente alto como para justificar la complejidad de una cola de mensajes dedicada a la integración.
-- El equipo tiene experiencia en el diseño de sistemas con consistencia eventual y procesos de conciliación.
+- Volumen de operaciones muy bajo, sin picos de carga significativos.
+- Un único parqueadero con pocos espacios y usuarios concurrentes reducidos.
+
+### Por qué se descartó el caché en memoria:
+
+El caché en memoria es adecuado cuando hay una única instancia del servicio, pero ParkEasy requiere escalamiento horizontal en horas pico. Con múltiples instancias del Reservation Service corriendo en paralelo, cada una con su propia copia del estado, el riesgo de inconsistencias entre instancias es alto y puede derivar en doble asignación de espacios, que es uno de los problemas centrales que el sistema debe evitar.
+
+**Cuándo sería la mejor opción:**
+- Una única instancia del servicio sin necesidad de escalamiento horizontal.
+- Datos que no se comparten entre servicios y cuya inconsistencia temporal no tiene consecuencias operativas.
 
 ---
 
 ## Validación
 
-- [x] Cumple con DR-01: Timeout de 3 segundos y circuit breaker garantizan que el legacy no bloquea el SLA de 5 segundos P95 del flujo de pago.
-- [x] Cumple con DR-03: El circuit breaker retorna errores controlados ante fallos del legacy sin afectar el Access Service ni el flujo de acceso en horas pico.
-- [x] Cumple con DR-04: Protocolo SOAP y complejidad del VB6 encapsulados en un único componente. El resto de los servicios interactúan con una API REST estable y documentada.
-- [x] Cumple con DR-07: Incremento estimado de $20–30 USD/mes para el servicio adicional en ECS Fargate. Dentro del margen disponible del presupuesto de infraestructura.
+- [x] Cumple con DR-01: Consultas de disponibilidad resueltas desde Redis en 1–2 ms, sin impacto sobre el tiempo de respuesta del flujo de entrada vehicular.
+- [x] Cumple con DR-02: Redis escala con la arquitectura; agregar parqueaderos y espacios no requiere cambios en el diseño del caché.
+- [x] Cumple con DR-03: ElastiCache con replicación automática mantiene el caché disponible durante horas pico sin intervención manual ante fallos.
+- [x] Cumple con DR-07: Estimado $20–30 USD/mes. Incremento menor al 2% sobre el presupuesto total de infraestructura disponible.
 
 ---
 
 ## Notas Adicionales
 
-Esta decisión se revisará al finalizar el MVP. Si el volumen de operaciones supera las 3.000 transacciones diarias o los fallos del legacy se vuelven frecuentes, se evaluará migrar hacia el enfoque asíncrono con cola de mensajes (Alternativa 3), aprovechando la infraestructura de RabbitMQ ya disponible en la arquitectura. El reemplazo total del sistema VB6 eliminaría la necesidad de este adaptador y simplificaría la arquitectura de forma significativa.
+Esta decisión se revisará al finalizar el MVP si el volumen de operaciones supera las 3.000 entradas/salidas diarias o si se incorporan más de 6 parqueaderos. En ese escenario se evaluará migrar a una instancia de mayor capacidad en ElastiCache o habilitar clustering de Redis para distribuir la carga de lectura.
 
 ---
 
