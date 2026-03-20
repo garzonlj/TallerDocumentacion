@@ -3,7 +3,7 @@
 
 **Versión:** 1.0  
 **Fecha:** 19/03/2026  
-**Grupo:** 1  
+**Grupo:** 4  
 **Preparado por:**
 - Juan Camilo Alba - 20520477
 - Laura Garzón - 20511299
