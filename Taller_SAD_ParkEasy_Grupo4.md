@@ -8,7 +8,7 @@
 - Juan Camilo Alba - 20520477
 - Laura Garzón - 20511299
 - Carlos Villegas - 20532083
-- Arley Bernal - [Código]
+- Arley Bernal - 20510888
 
 ---
 
