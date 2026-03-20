@@ -575,7 +575,7 @@ Los siguientes supuestos, tomados del [SRS], son condiciones necesarias para que
 
 | Rol | Nombre | Firma | Fecha |
 |-----|--------|-------|-------|
-| **Líder del Grupo** | Juan Camilo Alba | __________ | 19/03/2026 |
+| **Líder del Grupo** | Juan Camilo Alba | Juan Camilo Alba | 19/03/2026 |
 | **Arquitecto** | Laura Garzón | Laura Garzon | 19/03/2026 |
 | **Desarrollador 1** | Carlos Villegas | __________ | 19/03/2026 |
 | **Desarrollador 2** | Arley Bernal | __________ | 19/03/2026 |
