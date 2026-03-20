@@ -2,10 +2,10 @@
 ## Grupo 4
 
 **Integrantes:**
-- Juan Camilo Alba - 20520477 - [Email]
-- Laura Juliana Garzón Arias - 20511299 - [Email]
-- Carlos Villegas - 20532083 - [Email]
-- Arley Bernal Muñetón - 20510888 - [Email]
+- Juan Camilo Alba - 20520477 - alba-jc@javeriana.edu.co
+- Laura Juliana Garzón Arias - 20511299 - garzonlj@javeriana.edu.co
+- Carlos Villegas - 20532083 - villegas.carlos@javeriana.edu.co
+- Arley Bernal Muñetón - 20510888 - be_arley@javeriana.edu.co
 
 
 **Fecha de entrega:** 19/03/2026
