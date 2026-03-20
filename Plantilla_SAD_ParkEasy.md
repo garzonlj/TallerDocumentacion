@@ -5,7 +5,7 @@
 **Fecha:** [Completar]  
 **Grupo:** [Número de grupo]  
 **Preparado por:**
-- [Nombre 1] - [Código]
+- Juan Camilo Alba - 20520477
 - [Nombre 2] - [Código]
 - [Nombre 3] - [Código]
 - [Nombre 4] - [Código]
@@ -442,7 +442,7 @@ Este documento utiliza el **modelo C4** para describir la arquitectura.
 
 | Rol | Nombre | Firma | Fecha |
 |-----|--------|-------|-------|
-| **Líder del Grupo** | [Nombre] | __________ | ___/___/___ |
+| **Líder del Grupo** | Juan Camilo Alba | Juan Camilo Alba | 18/03/26 |
 | **Arquitecto** | [Nombre] | __________ | ___/___/___ |
 | **Desarrollador 1** | [Nombre] | __________ | ___/___/___ |
 | **Desarrollador 2** | [Nombre] | __________ | ___/___/___ |
