@@ -7,7 +7,6 @@
 - Carlos Villegas - 20532083 - villegas.carlos@javeriana.edu.co
 - Arley Bernal Muñetón - 20510888 - be_arley@javeriana.edu.co
 
-
 **Fecha de entrega:** 19/03/2026
 
 ---
@@ -17,13 +16,13 @@
 Este ZIP contiene la documentación arquitectural completa del sistema ParkEasy:
 
 ```
-├── Taller_README_Grupo4.md                              (Este archivo)
-├── Taller_SRS_ParkEasy_Grupo4.md                       (Requisitos)
-├── Taller_ADR-001_[Nombre]_Grupo4.md                   (Decisión arquitectural 1)
-├── Taller_ADR-002_[Nombre]_Grupo4.md                   (Decisión arquitectural 2)
-├── Taller_ADR-003_[Nombre]_Grupo4.md                   (Decisión arquitectural 3)
-├── Taller_ParkEasy_Architecture_Grupo4.dsl             (Vistas C4)
-└── Taller_SAD_ParkEasy_Grupo4.md                       (Documento arquitectural)
+├── Taller_README_Grupo4.md                                          (Este archivo)
+├── Taller_SRS_ParkEasy_Grupo4.md                                   (Requisitos)
+├── Taller_ADR-001_Service_Based_Architecture_Grupo4.md             (Decisión arquitectural 1)
+├── Taller_ADR-002_PostgreSQL_Database_Grupo4.md                    (Decisión arquitectural 2)
+├── Taller_ADR-003_Redis_Cache_Grupo4.md                            (Decisión arquitectural 3)
+├── Taller_ParkEasy_Architecture_Grupo4.dsl                         (Vistas C4)
+└── Taller_SAD_ParkEasy_Grupo4.md                                   (Documento arquitectural)
 ```
 
 ---
@@ -66,7 +65,7 @@ Abrir: http://localhost:8080
 
 **Por qué lo elegimos:** Equilibra la modularidad necesaria para escalar los servicios críticos (entrada/salida, disponibilidad) de forma independiente, sin la complejidad operacional de microservicios que excede la capacidad de un equipo de 4 desarrolladores en 8 meses.
 
-**Ver:** `Taller_ADR-001_[Nombre]_Grupo4.md`
+**Ver:** `Taller_ADR-001_Service_Based_Architecture_Grupo4.md`
 
 ---
 
@@ -78,19 +77,19 @@ Abrir: http://localhost:8080
 
 **Por qué lo elegimos:** PostgreSQL ofrece transacciones ACID necesarias para la consistencia de reservas y pagos, soporte nativo para RDS Multi-AZ en AWS, y un modelo relacional apropiado para los datos estructurados del sistema. Redis permite el acceso sub-segundo a la disponibilidad de espacios.
 
-**Ver:** `Taller_ADR-002_[Nombre]_Grupo4.md`
+**Ver:** `Taller_ADR-002_PostgreSQL_Database_Grupo4.md`
 
 ---
 
-### 3. Integración con Sistema Legacy: Adaptador SOAP
+### 3. Caché de Disponibilidad: Redis (ElastiCache)
 
-**Decisión:** Adaptador SOAP encapsulado dentro del Operacion Service y Pagos Service para sincronizar con el sistema VB6 sin reemplazarlo durante el MVP.
+**Decisión:** Redis desplegado en AWS ElastiCache como caché distribuido para el estado de disponibilidad de espacios en tiempo real, compartido por todas las instancias de todos los servicios.
 
-**Alternativas consideradas:** Reemplazo completo del legacy, Anti-Corruption Layer independiente
+**Alternativas consideradas:** Sin caché (consulta directa a PostgreSQL), caché en memoria dentro de cada servicio
 
-**Por qué lo elegimos:** El sistema legacy no puede reemplazarse en el plazo del MVP. Un adaptador interno evita exponer SOAP al resto de los servicios y permite sustituirlo en fases posteriores sin impacto arquitectural.
+**Por qué lo elegimos:** En horas pico, las consultas de disponibilidad desde conductores, el sistema LPR y los paneles de operador generan presión sobre PostgreSQL que puede degradar el flujo crítico de entrada. Redis centraliza el estado y lo resuelve en 1–2 ms sin tocar la base de datos, y garantiza consistencia entre múltiples instancias del mismo servicio escalando horizontalmente.
 
-**Ver:** `Taller_ADR-003_[Nombre]_Grupo4.md`
+**Ver:** `Taller_ADR-003_Redis_Cache_Grupo4.md`
 
 ---
 
@@ -150,9 +149,9 @@ Service-Based Architecture desplegada en AWS con contenedores Fargate (ECS).
 | AWS S3 (almacenamiento facturas 5 años) | ~$25 |
 | AWS CloudFront + Route 53 | ~$20 |
 | Otros (CloudWatch, transfer, etc.) | ~$50 |
-| **TOTAL** | **~$1.125 USD/mes** |
+| **TOTAL** | **~$1.315 USD/mes** |
 
-**¿Cumple con presupuesto de $2.000 USD/mes?** **SÍ** — margen de ~$875 USD para crecimiento.
+**¿Cumple con presupuesto de $2.000 USD/mes?** **SÍ** — margen de ~$685 USD para crecimiento (65,8% del presupuesto).
 
 > **Supuesto SUP-01:** El enunciado indica "$2.000.000/mes"; se interpreta como $2.000 USD/mes según lo documentado en el SRS (sección 6.1).
 
@@ -168,7 +167,7 @@ Service-Based Architecture desplegada en AWS con contenedores Fargate (ECS).
 | **DR-04: Legacy** | SOAP/VB6 no reemplazable en MVP | Adaptador SOAP encapsulado en Operacion Service y Pagos Service; resto del sistema desacoplado |
 | **DR-05: Regulatorio DIAN** | Retención facturas ≥ 5 años | S3 con replicación geográfica; facturas inmutables; recuperación ≤ 3 seg |
 | **DR-06: Seguridad** | PCI-DSS + Ley 1581/2012 | JWT con expiración; Wompi maneja datos de tarjeta (no se almacenan en ParkEasy); HTTPS en todas las comunicaciones; encriptación de placas en BD |
-| **DR-07: Costo** | ≤ $2.000 USD/mes | Costo estimado ~$1.125 USD/mes; instancias t3 para BD y cache en MVP |
+| **DR-07: Costo** | ≤ $2.000 USD/mes | Costo estimado ~$1.315 USD/mes; instancias t3 para BD y cache en MVP |
 
 ---
 
@@ -189,9 +188,12 @@ Service-Based Architecture desplegada en AWS con contenedores Fargate (ECS).
 
 | Riesgo | Mitigación |
 |--------|------------|
-| **Integración Legacy VB6 inestable** – Documentación SOAP incompleta puede generar errores de sincronización | Ingeniería inversa del protocolo en sprint 1; suite de pruebas de integración; modo fallback con registro manual en caseta |
-| **Fallo de cámaras LPR en horas pico** – Un fallo de las cámaras en rush hour genera congestión severa | Modo contingencia manual activo siempre en el Panel Operador; alerta automática al operador si confianza LPR < 90% |
-| **Subestimación de costos AWS** – El costo real puede superar la estimación si el tráfico crece más de lo proyectado | Monitoreo continuo con AWS Cost Explorer; alertas de presupuesto; instancias reservadas para RDS y ElastiCache en producción |
+| **R-01: Integración Legacy VB6 inestable** – Documentación SOAP incompleta; integración debe hacerse por ingeniería inversa | Encapsular en `LegacySOAPAdapter` dentro de Operacion Service y Pagos Service; captura de tráfico SOAP en staging; tests de integración exhaustivos antes de producción |
+| **R-02: Fallo de cámaras LPR en horas pico** – Bloquea el ingreso automático y genera congestión severa | Modo de contingencia manual en el Panel Operador (Electron); operadores capacitados para activarlo en ≤ 30 segundos; alerta automática si confianza LPR < 90% |
+| **R-03: Downtime de Wompi** – Bloquea el procesamiento de pagos digitales en salida | Queue de reintentos automáticos en Pagos Service (hasta 3 intentos con backoff exponencial); cobro en efectivo al operador siempre disponible como alternativa |
+| **R-04: Coupling no intencional por base de datos compartida** – Queries a esquemas ajenos pueden romper los límites del dominio | Esquemas separados por servicio en PostgreSQL; análisis estático en CI/CD que detecta queries a esquemas ajenos; code review obligatorio para toda nueva query |
+| **R-05: Concentración de conocimiento en equipo de 4 personas** – Riesgo crítico ante rotación de integrantes | Documentación exhaustiva (SAD, ADRs, Swagger por servicio, C4); code reviews obligatorios entre todos; rotación de responsabilidades por servicio durante el desarrollo |
+| **R-06: Fallo de Redis** – Deja al Disponibilidad Service sin caché de estado en tiempo real | Fallback automático a consulta directa sobre PostgreSQL (modo degradado controlado); CloudWatch alerta si Redis no responde en 5 segundos; ElastiCache Multi-AZ |
 
 ---
 
@@ -203,7 +205,7 @@ Service-Based Architecture desplegada en AWS con contenedores Fargate (ECS).
 |------------|-------------------|
 | Juan Camilo Alba | Líder del grupo, SRS, ADR-001 (Estilo Arquitectural) |
 | Laura Juliana Garzón | ADR-002 (Base de Datos), vistas C4 (DSL Structurizr) |
-| Carlos Villegas | ADR-003 (Integración Legacy), SAD |
+| Carlos Villegas | ADR-003 (Redis Cache), SAD |
 | Arley Bernal | Revisión y integración de documentos, README |
 
 ### Metodología
@@ -254,7 +256,7 @@ Antes de entregar, verificamos:
 - [x] SRS tiene mínimo 6 RF y 5 RNF con métricas
 - [x] 3 ADRs completos con alternativas y trade-offs
 - [x] SAD referencia correctamente todos los documentos
-- [x] Costos estimados ≤ $2.000 USD/mes (~$1.125 USD/mes)
+- [x] Costos estimados ≤ $2.000 USD/mes (~$1.315 USD/mes)
 - [x] Documentos profesionales sin errores ortográficos
 - [x] README explica claramente el trabajo
 
@@ -279,14 +281,14 @@ Grupo4_Taller_Documentacion_Arquitectural.zip
 │   └── Requisitos funcionales (RF-01 a RF-09) y no funcionales (RNF-01 a RNF-07)
 │   └── Drivers arquitecturales DR-01 a DR-07
 │
-├── Taller_ADR-001_[NombreDecision]_Grupo4.md
+├── Taller_ADR-001_Service_Based_Architecture_Grupo4.md
 │   └── Decisión: Estilo arquitectural (Service-Based Architecture)
 │
-├── Taller_ADR-002_[NombreDecision]_Grupo4.md
+├── Taller_ADR-002_PostgreSQL_Database_Grupo4.md
 │   └── Decisión: Base de datos (PostgreSQL + Redis)
 │
-├── Taller_ADR-003_[NombreDecision]_Grupo4.md
-│   └── Decisión: Integración con sistema legacy (Adaptador SOAP)
+├── Taller_ADR-003_Redis_Cache_Grupo4.md
+│   └── Decisión: Caché distribuido de disponibilidad (Redis en ElastiCache)
 │
 ├── Taller_ParkEasy_Architecture_Grupo4.dsl
 │   └── 4 vistas C4 en Structurizr DSL:
@@ -300,3 +302,4 @@ Grupo4_Taller_Documentacion_Arquitectural.zip
 ---
 
 **¡Gracias "Querido Profesor" por revisar nuestro trabajo!**
+**Gracias por las clases**
